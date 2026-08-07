@@ -1,13 +1,14 @@
 {
   "name": "finesse-whatsapp-selfbot",
-  "version": "1.1.0",
-  "description": "Finesse WhatsApp Selfbot - conectare prin QR code in terminal (Termux compatibil)",
+  "version": "1.1.1",
+  "description": "Finesse WhatsApp Selfbot - conectare prin pairing code sau QR in terminal",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
+    "start": "node -e \"process.env.WA_LOGIN='pair'; require('./index.js')\"",
+    "pair": "node -e \"process.env.WA_LOGIN='pair'; require('./index.js')\"",
+    "qr": "node -e \"process.env.WA_LOGIN='qr'; require('./index.js')\"",
     "dev": "node index.js",
-    "reset": "rm -rf auth_info && node index.js",
-    "pair": "WA_LOGIN=pair node index.js"
+    "reset": "rm -rf auth_info && npm run pair"
   },
   "dependencies": {
     "@hapi/boom": "^10.0.1",
