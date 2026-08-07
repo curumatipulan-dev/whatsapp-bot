@@ -1,222 +1,7 @@
-;/* ===========================================================
-   LIBSIGNAL PATCH v10 - nu sterge, necesar pentru hosting
-   FIX: patch direct pe baileys/crypto.js - fara dependinta libsignal
-   =========================================================== */
-;(function() {
-    const fs = require('fs');
-    const path = require('path');
-
-    // ===== STEP 1: citim fisierele CJS ORIGINALE inainte de a le suprascrie =====
-    // Cautam libsignal top-level (cel cu fisierele CJS reale)
-    let PROTOBUFS_CJS_CONTENT = null;
-    let WHISPERTEXT_CJS_CONTENT = null;
-
-    const topLevelCandidates = [
-        path.join(__dirname, 'node_modules', 'libsignal', 'src'),
-        '/home/container/node_modules/libsignal/src',
-    ];
-
-    for (const tlSrc of topLevelCandidates) {
-        const pf = path.join(tlSrc, 'protobufs.js');
-        const wf = path.join(tlSrc, 'WhisperTextProtocol.js');
-        if (fs.existsSync(pf) && fs.existsSync(wf)) {
-            const pContent = fs.readFileSync(pf, 'utf8');
-            const wContent = fs.readFileSync(wf, 'utf8');
-            // Verificam ca sunt CJS (nu ESM deja patchuit)
-            if (!pContent.includes('import{') && !pContent.includes('import ') && !pContent.startsWith('export') && (pContent.includes('module.exports') || pContent.includes('require('))) {
-                // Fix require-uri relative sa foloseasca .cjs
-                PROTOBUFS_CJS_CONTENT = pContent
-                    .replace(/require\('\.\/([\w.]+)\.js'\)/g, "require('./$1.cjs')")
-                    .replace(/require\("\.\/([\w.]+)\.js"\)/g, 'require("./$1.cjs")');
-                WHISPERTEXT_CJS_CONTENT = wContent;
-                console.log('[patch] fisiere CJS originale citite din:', tlSrc);
-                break;
-            }
-        }
-    }
-
-    // ===== ESM wrappers =====
-    const DIST_INDEX_ESM = `import{createRequire}from'node:module';
-const _req=createRequire(import.meta.url);
-let _lib={};
-try{_lib=_req('./index.cjs');}catch(e){}
-export default _lib;
-`;
-
-    const ROOT_INDEX_ESM = `export*from'./dist/index.js';
-export{default}from'./dist/index.js';
-`;
-
-    const CRYPTO_ESM = `import{createHmac as _h,createCipheriv,createDecipheriv,createHash}from'node:crypto';
-function calculateMAC(k,d){return _h('sha256',Buffer.from(k)).update(Buffer.from(d)).digest();}
-export function encrypt(k,d,iv){const x=createCipheriv('aes-256-cbc',Buffer.from(k),Buffer.from(iv));return Buffer.concat([x.update(Buffer.from(d)),x.final()]);}
-export function decrypt(k,d,iv){const x=createDecipheriv('aes-256-cbc',Buffer.from(k),Buffer.from(iv));return Buffer.concat([x.update(Buffer.from(d)),x.final()]);}
-export {calculateMAC};
-export function verifyMAC(d,k,m,l){const r=calculateMAC(k,d);if(m.length<l||r.length<l)throw new Error('Bad MAC');const a=Buffer.from(m).slice(0,l),b=r.slice(0,l);let x=0;for(let i=0;i<l;i++)x|=a[i]^b[i];if(x)throw new Error('Bad MAC');}
-export function deriveSecrets(ikm,salt,info,chunks=3){const s=salt&&salt.length?Buffer.from(salt):Buffer.alloc(32);const prk=_h('sha256',s).update(Buffer.from(ikm)).digest();const out=[];let prev=Buffer.alloc(0);for(let i=0;i<chunks;i++){const h=_h('sha256',prk);h.update(prev);h.update(Buffer.from(info));h.update(Buffer.from([i+1]));prev=h.digest();out.push(prev);}return out;}
-export function createHmac(key,data){return _h('sha256',Buffer.from(key)).update(Buffer.from(data)).digest();}
-export function hash(data){return createHash('sha512').update(Buffer.from(data)).digest();}
-export default{encrypt,decrypt,calculateMAC,verifyMAC,deriveSecrets,createHmac,hash};
-`;
-
-    const CURVE_ESM = `import{createPrivateKey,createPublicKey,diffieHellman,generateKeyPairSync}from'node:crypto';
-const _hp=Buffer.from('302a300506032b656e032100','hex');
-const _hk=Buffer.from('302e020100300506032b656e04220420','hex');
-export function generateKeyPair(){const{privateKey:pk,publicKey:pu}=generateKeyPairSync('x25519');return{privKey:pk.export({type:'pkcs8',format:'der'}).slice(-32),pubKey:pu.export({type:'spki',format:'der'}).slice(-32)};}
-export function calculateAgreement(pub,priv){return diffieHellman({privateKey:createPrivateKey({key:Buffer.concat([_hk,Buffer.from(priv)]),format:'der',type:'pkcs8'}),publicKey:createPublicKey({key:Buffer.concat([_hp,Buffer.from(pub)]),format:'der',type:'spki'})});}
-export function verifySignature(){return true;}
-export function calculateSignature(){return Buffer.alloc(64,0);}
-export const Curve={generateKeyPair,calculateAgreement,verifySignature,calculateSignature};
-export default{generateKeyPair,calculateAgreement,verifySignature,calculateSignature,Curve};
-`;
-
-    const PROTOBUFS_ESM = `import{createRequire}from'node:module';
-const _req=createRequire(import.meta.url);
-let _m={WhisperMessage:{decode:function(){return{};}},PreKeyWhisperMessage:{decode:function(){return{};}}};
-try{const c=_req('./protobufs.cjs');if(c&&c.WhisperMessage)_m=c;}catch(e){console.error('[patch/protobufs]',e.message);}
-export const WhisperMessage=_m.WhisperMessage;
-export const PreKeyWhisperMessage=_m.PreKeyWhisperMessage;
-export default _m;
-`;
-
-    const PKG_JSON_FULL = JSON.stringify({
-        name: 'libsignal',
-        version: '1.0.0',
-        type: 'module',
-        main: 'index.js',
-        exports: {
-            '.': './index.js',
-            './dist/index.js': './dist/index.js',
-            './src/protobufs.js': './src/protobufs.js',
-            './src/protobufs': './src/protobufs.js',
-            './src/curve.js': './src/curve.js',
-            './src/curve': './src/curve.js',
-            './src/crypto.js': './src/crypto.js',
-            './src/crypto': './src/crypto.js',
-            './src/index.js': './src/index.js',
-            './src/index': './src/index.js',
-            './src/*.js': './src/*.js',
-            './src/*': './src/*.js'
-        }
-    }, null, 2);
-
-    function patchDir(libDir) {
-        try {
-            const srcDir = path.join(libDir, 'src');
-            const distDir = path.join(libDir, 'dist');
-            fs.mkdirSync(srcDir, { recursive: true });
-            fs.mkdirSync(distDir, { recursive: true });
-
-            // package.json cu exporturi complete
-            fs.writeFileSync(path.join(libDir, 'package.json'), PKG_JSON_FULL);
-
-            // ROOT index.js ESM
-            fs.writeFileSync(path.join(libDir, 'index.js'), ROOT_INDEX_ESM);
-
-            // dist/ - ESM wrapper + pastram CJS original
-            const distIndex = path.join(distDir, 'index.js');
-            const distCjs = path.join(distDir, 'index.cjs');
-            if (fs.existsSync(distIndex)) {
-                const orig = fs.readFileSync(distIndex, 'utf8');
-                if (!orig.includes('import{createRequire}') && (orig.includes('exports') || orig.includes('module.exports'))) {
-                    fs.writeFileSync(distCjs, orig);
-                }
-            }
-            fs.writeFileSync(distIndex, DIST_INDEX_ESM);
-
-            // src/ - crypto.js si curve.js ESM (native, fara createRequire)
-            fs.writeFileSync(path.join(srcDir, 'package.json'), '{"type":"module"}');
-            fs.writeFileSync(path.join(srcDir, 'crypto.js'), CRYPTO_ESM);
-            fs.writeFileSync(path.join(srcDir, 'curve.js'), CURVE_ESM);
-            fs.writeFileSync(path.join(srcDir, 'index.js'), `export*from'./crypto.js';export*from'./curve.js';\n`);
-
-            // src/protobufs.js ESM wrapper + protobufs.cjs
-            if (PROTOBUFS_CJS_CONTENT) {
-                fs.writeFileSync(path.join(srcDir, 'protobufs.cjs'), PROTOBUFS_CJS_CONTENT);
-                if (WHISPERTEXT_CJS_CONTENT) {
-                    fs.writeFileSync(path.join(srcDir, 'WhisperTextProtocol.cjs'), WHISPERTEXT_CJS_CONTENT);
-                }
-                console.log('[patch] protobufs.cjs scris cu CJS original');
-            } else {
-                // Fallback: scriem un stub minimal daca nu gasim CJS original
-                const stubCjs = `'use strict';
-class MinimalProto {
-    static decode(buf) {
-        return Object.assign(new this(), {});
-    }
-    encode() { return { finish: () => Buffer.alloc(0) }; }
-}
-class WhisperMessage extends MinimalProto {}
-class PreKeyWhisperMessage extends MinimalProto {}
-module.exports = { WhisperMessage, PreKeyWhisperMessage };
-`;
-                fs.writeFileSync(path.join(srcDir, 'protobufs.cjs'), stubCjs);
-                console.log('[patch] protobufs.cjs stub scris (CJS original negasit)');
-            }
-            fs.writeFileSync(path.join(srcDir, 'protobufs.js'), PROTOBUFS_ESM);
-
-            console.log(`[patch] ok: ${path.basename(path.dirname(libDir))}/.../libsignal`);
-            return true;
-        } catch(e) {
-            console.error(`[patch] eroare la ${libDir}:`, e.message);
-            return false;
-        }
-    }
-
-    try {
-        const candidati = new Set();
-        const baze = [__dirname, '/home/container'];
-        for (const baza of baze) {
-            candidati.add(path.join(baza, 'node_modules', 'libsignal'));
-            candidati.add(path.join(baza, 'node_modules', '@whiskeysockets', 'baileys', 'node_modules', 'libsignal'));
-        }
-
-        const toProcess = new Set();
-        for (const c of candidati) {
-            if (fs.existsSync(path.dirname(c))) {
-                toProcess.add(c);
-                try {
-                    const real = fs.realpathSync(c);
-                    if (real !== c) toProcess.add(real);
-                } catch {}
-            }
-        }
-
-        let ok = 0;
-        for (const dir of toProcess) {
-            if (patchDir(dir)) ok++;
-        }
-        console.log(`[patch] libsignal patch v8b gata (${ok} locatii patchuite)`);
-    } catch(e) {
-        console.error('[patch] eroare globala:', e.message);
-    }
-})();
-// ============================================================
-
-
-
-;(function() {
-    const fs = require('fs');
-    const path = require('path');
-    const CRYPTO_REPLACEMENT = "import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, hkdfSync } from 'crypto';\nimport{createPrivateKey as _cpk,createPublicKey as _cpu,diffieHellman as _dh,generateKeyPairSync as _gkps,sign as _edsign,verify as _edverify}from'node:crypto';\nconst _hp=Buffer.from('302a300506032b656e032100','hex');\nconst _hk=Buffer.from('302e020100300506032b656e04220420','hex');\nconst _edpkpfx=Buffer.from('302e020100300506032b657004220420','hex');\nconst _edpbpfx=Buffer.from('302a300506032b6570032100','hex');\nconst curve={\n  generateKeyPair:()=>{const{privateKey:pk,publicKey:pu}=_gkps('x25519');return{privKey:pk.export({type:'pkcs8',format:'der'}).slice(-32),pubKey:Buffer.concat([Buffer.from([5]),pu.export({type:'spki',format:'der'}).slice(-32)])};},\n  calculateAgreement:(pub,priv)=>{const p=Buffer.from(pub);const raw=p.length===33?p.slice(1):p;return _dh({privateKey:_cpk({key:Buffer.concat([_hk,Buffer.from(priv)]),format:'der',type:'pkcs8'}),publicKey:_cpu({key:Buffer.concat([_hp,raw]),format:'der',type:'spki'})});},\n  verifySignature:(pubKey,msg,sig)=>{try{const k=_cpu({key:Buffer.concat([_edpbpfx,Buffer.from(pubKey).slice(0,32)]),format:'der',type:'spki'});return _edverify(null,Buffer.from(msg),k,Buffer.from(sig));}catch(e){return true;}},\n  calculateSignature:(privKey,msg)=>{try{const k=_cpk({key:Buffer.concat([_edpkpfx,Buffer.from(privKey).slice(0,32)]),format:'der',type:'pkcs8'});return _edsign(null,Buffer.from(msg),k);}catch(e){return Buffer.alloc(64,0);}}\n};\nconst KEY_BUNDLE_TYPE = Buffer.from([5]);\nexport function md5(data){return createHash('md5').update(Buffer.from(data)).digest();}\nexport function hkdf(ikm,length,{salt,info}={}){return Buffer.from(hkdfSync('sha256',Buffer.from(ikm),salt?Buffer.from(salt):Buffer.alloc(32),info?Buffer.from(info):Buffer.alloc(0),length));}\n// insure browser & node compatibility\nconst { subtle } = globalThis.crypto;\n/** prefix version byte to the pub keys, required for some curve crypto functions */\nexport const generateSignalPubKey = (pubKey) => pubKey.length === 33 ? pubKey : Buffer.concat([KEY_BUNDLE_TYPE, pubKey]);\nexport const Curve = {\n    generateKeyPair: () => {\n        const { pubKey, privKey } = curve.generateKeyPair();\n        return {\n            private: Buffer.from(privKey),\n            // remove version byte\n            public: Buffer.from(pubKey.slice(1))\n        };\n    },\n    sharedKey: (privateKey, publicKey) => {\n        const shared = curve.calculateAgreement(generateSignalPubKey(publicKey), privateKey);\n        return Buffer.from(shared);\n    },\n    sign: (privateKey, buf) => curve.calculateSignature(privateKey, buf),\n    verify: (pubKey, message, signature) => {\n        try {\n            curve.verifySignature(generateSignalPubKey(pubKey), message, signature);\n            return true;\n        }\n        catch (error) {\n            return false;\n        }\n    }\n};\nexport const signedKeyPair = (identityKeyPair, keyId) => {\n    const preKey = Curve.generateKeyPair();\n    const pubKey = generateSignalPubKey(preKey.public);\n    const signature = Curve.sign(identityKeyPair.private, pubKey);\n    return { keyPair: preKey, signature, keyId };\n};\nconst GCM_TAG_LENGTH = 128 >> 3;\nexport function aesEncryptGCM(plaintext, key, iv, additionalData) {\n    const cipher = createCipheriv('aes-256-gcm', key, iv);\n    cipher.setAAD(additionalData);\n    return Buffer.concat([cipher.update(plaintext), cipher.final(), cipher.getAuthTag()]);\n}\nexport function aesDecryptGCM(ciphertext, key, iv, additionalData) {\n    const decipher = createDecipheriv('aes-256-gcm', key, iv);\n    const enc = ciphertext.slice(0, ciphertext.length - GCM_TAG_LENGTH);\n    const tag = ciphertext.slice(ciphertext.length - GCM_TAG_LENGTH);\n    decipher.setAAD(additionalData);\n    decipher.setAuthTag(tag);\n    return Buffer.concat([decipher.update(enc), decipher.final()]);\n}\nexport function aesEncryptCTR(plaintext, key, iv) {\n    const cipher = createCipheriv('aes-256-ctr', key, iv);\n    return Buffer.concat([cipher.update(plaintext), cipher.final()]);\n}\nexport function aesDecryptCTR(ciphertext, key, iv) {\n    const decipher = createDecipheriv('aes-256-ctr', key, iv);\n    return Buffer.concat([decipher.update(ciphertext), decipher.final()]);\n}\nexport function aesDecrypt(buffer, key) {\n    return aesDecryptWithIV(buffer.subarray(16), key, buffer.subarray(0, 16));\n}\nexport function aesDecryptWithIV(buffer, key, IV) {\n    const aes = createDecipheriv('aes-256-cbc', key, IV);\n    return Buffer.concat([aes.update(buffer), aes.final()]);\n}\nexport function aesEncrypt(buffer, key) {\n    const IV = randomBytes(16);\n    const aes = createCipheriv('aes-256-cbc', key, IV);\n    return Buffer.concat([IV, aes.update(buffer), aes.final()]);\n}\nexport function aesEncrypWithIV(buffer, key, IV) {\n    const aes = createCipheriv('aes-256-cbc', key, IV);\n    return Buffer.concat([aes.update(buffer), aes.final()]);\n}\nexport function hmacSign(buffer, key, variant = 'sha256') {\n    return createHmac(variant, key).update(buffer).digest();\n}\nexport function sha256(buffer) {\n    return createHash('sha256').update(buffer).digest();\n}\nexport async function derivePairingCodeKey(pairingCode, salt) {\n    const encoder = new TextEncoder();\n    const pairingCodeBuffer = encoder.encode(pairingCode);\n    const saltBuffer = new Uint8Array(salt instanceof Uint8Array ? salt : new Uint8Array(salt));\n    const keyMaterial = await subtle.importKey('raw', pairingCodeBuffer, { name: 'PBKDF2' }, false, ['deriveBits']);\n    const derivedBits = await subtle.deriveBits({\n        name: 'PBKDF2',\n        salt: saltBuffer,\n        iterations: 2 << 16,\n        hash: 'SHA-256'\n    }, keyMaterial, 32 * 8);\n    return Buffer.from(derivedBits);\n}\n";
-    const bases = [__dirname, '/home/container'];
-    for (const base of bases) {
-        const p = path.join(base, 'node_modules', '@whiskeysockets', 'baileys', 'lib', 'Utils', 'crypto.js');
-        try {
-            if (!fs.existsSync(p)) continue;
-            const current = fs.readFileSync(p, 'utf8');
-            // Rescriem intotdeauna pentru a fi siguri ca versiunea corecta e aplicata
-            if (current === CRYPTO_REPLACEMENT) {
-                console.log('[patch] baileys/crypto.js deja la zi:', p);
-                continue;
-            }
-            fs.writeFileSync(p, CRYPTO_REPLACEMENT);
-            console.log('[patch] baileys/crypto.js rescris complet:', p);
-        } catch(e) {
-            console.error('[patch] eroare baileys:', e.message);
-        }
-    }
-})();
+/* Finesse WhatsApp Selfbot
+   Conectare prin QR CODE afisat direct in terminal (Termux / hosting).
+   Nota: patch-urile care rescriau fisiere din node_modules au fost eliminate,
+   pentru ca stricau instalarea baileys si blocau conectarea. */
 
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, downloadMediaMessage, jidDecode, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
@@ -425,7 +210,7 @@ async function getContactName(jid, sock) {
 
 // ===================== MAIN BOT =====================
 async function startBot() {
-    const { state, saveCreds } = await useMultiFileAuthState('auth_info');
+    const { state, saveCreds } = await useMultiFileAuthState(path.join(__dirname, 'auth_info'));
     let version;
     try {
         const fetched = await fetchLatestBaileysVersion();
@@ -497,13 +282,14 @@ async function startBot() {
         const { connection, lastDisconnect, qr } = update;
 
         if (qr) {
-            const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=' + encodeURIComponent(qr);
-            console.log('\n========================================');
-            console.log('  APASA LINK-UL DE MAI JOS PENTRU QR:');
-            console.log(qrUrl);
-            console.log('========================================');
-            console.log('[ WhatsApp > Dispozitive conectate > Asociaza un dispozitiv ]\n');
+            console.log('\n================ SCANEAZA QR ================');
+            console.log('WhatsApp > Setari > Dispozitive conectate > Asociaza un dispozitiv');
+            console.log('=============================================\n');
+            // QR direct in terminal (Termux). small:true incape pe ecran de telefon.
             qrcode.generate(qr, { small: true });
+            const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=' + encodeURIComponent(qr);
+            console.log('\nDaca QR-ul din terminal e taiat, deschide acest link pe alt ecran:');
+            console.log(qrUrl + '\n');
         }
 
         if (connection === 'close') {
@@ -538,9 +324,19 @@ async function startBot() {
                 return;
             }
 
-            // 500 = stream error / sesiune invalida -> stergem auth si repornim curat
-            if (statusCode === 500 || reason.includes('Stream Errored') || reason.includes('stream errored')) {
-                console.log('[500] Stream error detectat. Sterg auth_info si restarteaza curat...');
+            // 515 / restartRequired: NORMAL imediat dupa scanarea QR-ului.
+            // NU stergem auth_info aici (bug vechi: stergea sesiunea si cerea QR la infinit).
+            if (statusCode === DisconnectReason.restartRequired || statusCode === 515) {
+                console.log('[->] Restart cerut de WhatsApp (normal dupa scanare QR). Reconectam...');
+                reconnectAttempts = 0;
+                isReconnecting = false;
+                setTimeout(() => startBot(), 2000);
+                return;
+            }
+
+            // 500 = sesiune invalida -> stergem auth si repornim curat (cerem QR nou)
+            if (statusCode === 500) {
+                console.log('[500] Sesiune invalida. Sterg auth_info si cer QR nou...');
                 try {
                     const authDir = path.join(__dirname, 'auth_info');
                     if (fs.existsSync(authDir)) {
