@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node index.js",
     "dev": "node index.js",
-    "reset": "rm -rf auth_info && node index.js"
+    "reset": "rm -rf auth_info && node index.js",
+    "pair": "WA_LOGIN=pair node index.js"
   },
   "dependencies": {
     "@hapi/boom": "^10.0.1",
