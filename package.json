@@ -1,0 +1,30 @@
+{
+  "name": "finesse-whatsapp-selfbot",
+  "version": "1.0.0",
+  "description": "Finesse WhatsApp Selfbot - Bot automat pentru WhatsApp cu comenzi",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js"
+  },
+  "dependencies": {
+    "@hapi/boom": "^10.0.1",
+    "@whiskeysockets/baileys": "^6.7.9",
+    "axios": "^1.6.0",
+    "canvas": "^2.11.2",
+    "pino": "^8.17.2",
+    "qrcode-terminal": "^0.12.0"
+  },
+  "keywords": [
+    "whatsapp",
+    "selfbot",
+    "baileys",
+    "finesse",
+    "automation"
+  ],
+  "author": "Finesse",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
