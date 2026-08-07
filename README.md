@@ -1,4 +1,4 @@
-# Finesse WhatsApp Selfbot
+#  WhatsApp Selfbot
 
 Conectare prin **QR code afisat direct in terminal**.
 
