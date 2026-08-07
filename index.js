@@ -14,7 +14,13 @@ const qrcode = require('qrcode-terminal');
 
 // ===================== CONFIG =====================
 // Numarul tau de telefon (format international, fara + sau spatii)
-const PHONE_NUMBER = '40743370530';
+// Poate fi suprascris cu variabila de mediu WA_PHONE (ex: WA_PHONE=407xxxxxxxx npm start)
+const PHONE_NUMBER = (process.env.WA_PHONE || '40743370530').replace(/[^0-9]/g, '');
+
+// Metoda de conectare:
+//   WA_LOGIN=pair -> cod de asociere de 8 caractere (recomandat, mai rar blocat de WhatsApp)
+//   WA_LOGIN=qr   -> cod QR in terminal (implicit)
+const LOGIN_METHOD = (process.env.WA_LOGIN || 'qr').toLowerCase() === 'pair' ? 'pair' : 'qr';
 
 const PREFIXES = ['$', '=', '!'];
 const SCRIPT_NAME = 'Finesse WhatsApp Selfbot';
@@ -221,7 +227,13 @@ async function startBot() {
         version = [2, 3000, 1015901307];
         console.log('[bot] Fetch versiune esuat, folosim fallback:', version.join('.'));
     }
-    const usePairingCode = false; // folosim QR code
+    // Pairing code doar daca nu suntem deja inregistrati (altfel sesiunea existenta e valida)
+    const usePairingCode = LOGIN_METHOD === 'pair' && !state.creds.registered;
+    if (usePairingCode && !PHONE_NUMBER) {
+        console.error('[pairing] Lipseste numarul. Porneste cu: WA_PHONE=407xxxxxxxx WA_LOGIN=pair npm start');
+        process.exit(1);
+    }
+    console.log(`[bot] Metoda de conectare: ${usePairingCode ? 'COD DE ASOCIERE (' + PHONE_NUMBER + ')' : 'QR CODE'}`);
     const sock = makeWASocket({
         auth: state,
         version,
@@ -281,7 +293,9 @@ async function startBot() {
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
 
-        if (qr) {
+        if (qr && usePairingCode) {
+            // Cand folosim pairing code ignoram QR-ul ca sa nu incurce terminalul
+        } else if (qr) {
             console.log('\n================ SCANEAZA QR ================');
             console.log('WhatsApp > Setari > Dispozitive conectate > Asociaza un dispozitiv');
             console.log('=============================================\n');
