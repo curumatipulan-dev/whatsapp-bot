@@ -1,6 +1,6 @@
 {
   "name": "finesse-whatsapp-selfbot",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Finesse WhatsApp Selfbot - conectare prin pairing code sau QR in terminal",
   "main": "index.js",
   "scripts": {
@@ -17,8 +17,11 @@
     "pino": "^8.21.0",
     "qrcode-terminal": "^0.12.0"
   },
-  "optionalDependencies": {
-    "canvas": "^2.11.2"
+  "overrides": {
+    "libsignal": "https://codeload.github.com/WhiskeySockets/libsignal-node/tar.gz/refs/heads/master"
+  },
+  "resolutions": {
+    "libsignal": "https://codeload.github.com/WhiskeySockets/libsignal-node/tar.gz/refs/heads/master"
   },
   "keywords": [
     "whatsapp",
