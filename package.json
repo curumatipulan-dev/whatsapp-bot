@@ -1,39 +1,22 @@
 {
-  "name": "finesse-whatsapp-selfbot",
-  "version": "1.1.3",
-  "description": "Finesse WhatsApp Selfbot - conectare prin pairing code sau QR in terminal",
+  "name": "whatsapp-bot",
+  "version": "1.2.0",
   "main": "index.js",
   "scripts": {
-    "start": "node -e \"process.env.WA_LOGIN='pair'; require('./index.js')\"",
-    "pair": "node -e \"process.env.WA_LOGIN='pair'; require('./index.js')\"",
-    "qr": "node -e \"process.env.WA_LOGIN='qr'; require('./index.js')\"",
-    "dev": "node index.js",
-    "reset": "rm -rf auth_info && npm run pair"
+    "start": "node index.js"
   },
   "dependencies": {
-    "@hapi/boom": "^10.0.1",
-    "@whiskeysockets/baileys": "6.7.24",
-    "axios": "^1.7.7",
-    "pino": "^8.21.0",
-    "qrcode-terminal": "^0.12.0"
+    "@whiskeysockets/baileys": "6.7.9",
+    "@hapi/boom": "10.0.1",
+    "axios": "1.7.7",
+    "curve25519-js": "0.0.4",
+    "pino": "9.5.0",
+    "qrcode-terminal": "0.12.0"
+  },
+  "engines": {
+    "node": ">=18"
   },
   "overrides": {
     "libsignal": "^6.0.0"
-  },
-  "resolutions": {
-    "libsignal": "^6.0.0"
-  },
-  "keywords": [
-    "whatsapp",
-    "selfbot",
-    "baileys",
-    "finesse",
-    "automation",
-    "termux"
-  ],
-  "author": "Finesse",
-  "license": "MIT",
-  "engines": {
-    "node": ">=18.0.0"
   }
 }
