@@ -1,8 +1,3 @@
-/* Finesse WhatsApp Selfbot
-   Conectare prin QR CODE afisat direct in terminal (Termux / hosting).
-   Nota: patch-urile care rescriau fisiere din node_modules au fost eliminate,
-   pentru ca stricau instalarea baileys si blocau conectarea. */
-
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, downloadMediaMessage, jidDecode, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
 const P = require('pino');
@@ -14,13 +9,7 @@ const qrcode = require('qrcode-terminal');
 
 // ===================== CONFIG =====================
 // Numarul tau de telefon (format international, fara + sau spatii)
-// Poate fi suprascris cu variabila de mediu WA_PHONE (ex: WA_PHONE=407xxxxxxxx npm start)
-const PHONE_NUMBER = (process.env.WA_PHONE || '40743370530').replace(/[^0-9]/g, '');
-
-// Metoda de conectare:
-//   WA_LOGIN=pair -> cod de asociere de 8 caractere (recomandat, mai rar blocat de WhatsApp)
-//   WA_LOGIN=qr   -> cod QR in terminal (implicit)
-const LOGIN_METHOD = (process.env.WA_LOGIN || 'qr').toLowerCase() === 'pair' ? 'pair' : 'qr';
+const PHONE_NUMBER = '40743370530';
 
 const PREFIXES = ['$', '=', '!'];
 const SCRIPT_NAME = 'Finesse WhatsApp Selfbot';
@@ -216,7 +205,7 @@ async function getContactName(jid, sock) {
 
 // ===================== MAIN BOT =====================
 async function startBot() {
-    const { state, saveCreds } = await useMultiFileAuthState(path.join(__dirname, 'auth_info'));
+    const { state, saveCreds } = await useMultiFileAuthState('auth_info');
     let version;
     try {
         const fetched = await fetchLatestBaileysVersion();
@@ -227,13 +216,7 @@ async function startBot() {
         version = [2, 3000, 1015901307];
         console.log('[bot] Fetch versiune esuat, folosim fallback:', version.join('.'));
     }
-    // Pairing code doar daca nu suntem deja inregistrati (altfel sesiunea existenta e valida)
-    const usePairingCode = LOGIN_METHOD === 'pair' && !state.creds.registered;
-    if (usePairingCode && !PHONE_NUMBER) {
-        console.error('[pairing] Lipseste numarul. Porneste cu: WA_PHONE=407xxxxxxxx WA_LOGIN=pair npm start');
-        process.exit(1);
-    }
-    console.log(`[bot] Metoda de conectare: ${usePairingCode ? 'COD DE ASOCIERE (' + PHONE_NUMBER + ')' : 'QR CODE'}`);
+    const usePairingCode = false; // folosim QR code
     const sock = makeWASocket({
         auth: state,
         version,
@@ -293,17 +276,14 @@ async function startBot() {
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
 
-        if (qr && usePairingCode) {
-            // Cand folosim pairing code ignoram QR-ul ca sa nu incurce terminalul
-        } else if (qr) {
-            console.log('\n================ SCANEAZA QR ================');
-            console.log('WhatsApp > Setari > Dispozitive conectate > Asociaza un dispozitiv');
-            console.log('=============================================\n');
-            // QR direct in terminal (Termux). small:true incape pe ecran de telefon.
-            qrcode.generate(qr, { small: true });
+        if (qr) {
             const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=' + encodeURIComponent(qr);
-            console.log('\nDaca QR-ul din terminal e taiat, deschide acest link pe alt ecran:');
-            console.log(qrUrl + '\n');
+            console.log('\n========================================');
+            console.log('  APASA LINK-UL DE MAI JOS PENTRU QR:');
+            console.log(qrUrl);
+            console.log('========================================');
+            console.log('[ WhatsApp > Dispozitive conectate > Asociaza un dispozitiv ]\n');
+            qrcode.generate(qr, { small: true });
         }
 
         if (connection === 'close') {
@@ -338,19 +318,9 @@ async function startBot() {
                 return;
             }
 
-            // 515 / restartRequired: NORMAL imediat dupa scanarea QR-ului.
-            // NU stergem auth_info aici (bug vechi: stergea sesiunea si cerea QR la infinit).
-            if (statusCode === DisconnectReason.restartRequired || statusCode === 515) {
-                console.log('[->] Restart cerut de WhatsApp (normal dupa scanare QR). Reconectam...');
-                reconnectAttempts = 0;
-                isReconnecting = false;
-                setTimeout(() => startBot(), 2000);
-                return;
-            }
-
-            // 500 = sesiune invalida -> stergem auth si repornim curat (cerem QR nou)
-            if (statusCode === 500) {
-                console.log('[500] Sesiune invalida. Sterg auth_info si cer QR nou...');
+            // 500 = stream error / sesiune invalida -> stergem auth si repornim curat
+            if (statusCode === 500 || reason.includes('Stream Errored') || reason.includes('stream errored')) {
+                console.log('[500] Stream error detectat. Sterg auth_info si restarteaza curat...');
                 try {
                     const authDir = path.join(__dirname, 'auth_info');
                     if (fs.existsSync(authDir)) {
